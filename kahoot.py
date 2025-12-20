@@ -50,7 +50,7 @@ class Question:
 
     @staticmethod
     def from_json(data: dict) -> 'Question':
-        choices: list[dict] = data['choices']
+        choices: list[dict] = data.get('choices', [])
         return Question(
             text=data.get('question', "<unknown>"),
             answers=[
@@ -149,7 +149,7 @@ def formatter(questions: list[Question], kahoot: Kahoot) -> str:
 
     return msg
 
-def gentable(kahoots: list[Kahoot]):
+def gentable(kahoots: list[Kahoot]) -> str:
     len_ui = max([len(k.uuid) for k in kahoots])
     len_ti = max([len(k.title) for k in kahoots])
     len_au = max([len(k.author) for k in kahoots])
@@ -305,7 +305,7 @@ def main():
     parser = argparse.ArgumentParser(description="Kahoot Hack by @PaketPKSoftware")
     parser.add_argument('-search', type=str, help="Search quizid for questions")
     parser.add_argument('-scan', type=str, help="Scan answers from quizid")
-    parser.add_argument('-server', action='store_true', help="Scan answers from quizid")
+    parser.add_argument('-server', action='store_true', help="Start Kahoot Backdoor Server for kahoot.js")
 
     args = parser.parse_args()
 
