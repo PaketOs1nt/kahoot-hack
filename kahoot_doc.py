@@ -103,7 +103,7 @@ def run_server():
 
 # и теперь как юзать searcher
 searcher = kahoot.KahootSmartSearch()
-kahoot.kahoot_backdoor_logger
+
 result = searcher.get(questions[0]) # используем первый вопрос из того кахута в начале
 result = searcher.get(questions[1]) # и грузим второй что бы он имел больше данных для анализа
 
@@ -120,3 +120,4 @@ Kahoot(uuid='b07c73af-4bdd-40d5-a9ab-e8f2aa9ac18f', title='Штребунал', 
 kahoot.kahoot_backdoor_logger - он уже имеет встроенный логгер и поисковик,
 а так же подсвечивает верные ответы если нашел кахут
 """
+
