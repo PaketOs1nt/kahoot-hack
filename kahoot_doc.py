@@ -1,14 +1,15 @@
 """
-я не умею говорить на русском, так что документаций будет написана на пайтоне
+я не умею говорить на русском, так что документация будет написана на пайтоне
 """
 
 import kahoot
+import asyncio # без asyncio мы не сможем норм запускать и работать с сервером
 
 kahoot.Kahoot # обьект датакласса (ну или структура) с 4 полями, uuid (quizid), title, author, usage (применение)
 
 kahoot.Answer # обьект ответа на вопрос, поля: text (текст ответа), correct (верный ли ответ, True/False) 
 
-kahoot.Question # обьект вопроса в викторине, поля: text (сам вопрос), answers (список обьяктов Answer)
+kahoot.Question # обьект вопроса в викторине, поля: text (сам вопрос), answers (список обьяктов Answer), есть функция correct_index, возвращает индекс первого верного ответа
 
 
 # допустим мы хотим получить список кахутов по какому то тексту
@@ -34,9 +35,7 @@ print(f"ответы на викторину {ka.title}:\n")
 
 for question in questions:
     print(f"вопрос: {question.text}")
-    for answer in question.answers:
-        if answer.correct:
-            print(f"найден правильный ответ: {answer.text}")
+    print(f"найден правильный ответ: {question.answers[question.correct_index()].text}")
 
     print()
 
@@ -61,3 +60,63 @@ for question in questions:
 """
 
 # теперь вы знаете как можно очень просто сделать свой чит на kahoot
+
+# новая тема - удаленный доступ к кахут сессии браузера!
+# эт конешна оч сложно но думаю похуй потому что я постарался сделать это просто
+
+kahoot.Result # простая структура, имеет только поля correct (верный наш ответ был или нет) и points (сколько балов мы получили)
+
+kahoot.KahootBackdoorServer # обьект сервера, через него мы будем все делать и тд
+
+kahoot.KahootRemoteSession # обьект доступа к клиенту, тоесть доступ к подключенной сессии который мы через kahoot.KahootBackdoorServer получили
+
+kahoot.KahootSmartSearch # умный поисковик кахутов по вопросам, но для этого нам надо не текст вопроса а сам вопрос, что бы он мог сравнивать ответы и так далее
+
+
+# создание сервера: надо создатьь функцию обработчик клиентов, и запустить сервер с ним
+
+def handler(connected: kahoot.KahootRemoteSession):
+    total_points = 0 # например мы будем собирать сколько у нас баллов всего
+    # теперь нам надо сделать обработчики для самого клиента, например что бы мы выводили все результаты ответов
+    def on_result(result: kahoot.Result):
+        nonlocal total_points # что бы был доступ к этой переменной
+        total_points += result.points
+        print(f"ответ верный: {result.correct}\nбаллы за вопрос: {result.points}\nвсего у нас баллов: {total_points}\n")
+
+    connected.on_result = on_result # что бы connected знал какую функцию вызывать когда приишел результат
+
+    # и что бы выводило какие ответы у нас грузятся:
+    def on_pre_question(question: kahoot.Question):
+        print(f"грузиться вопрос: {question.text}\n")
+
+    connected.on_pre_question = on_pre_question # что бы connected знал какую функцию вызывать когда грузиться вопрос
+
+    # так же мы можем с connected.on_question
+    # так же мы можем подсветить кнопку ответа через connected.show(index), индекс начинаеться с нуля
+    
+
+
+server = kahoot.KahootBackdoorServer(handler)
+
+def run_server():
+    asyncio.run(server.run()) # сервер по другому не запуститься
+
+# и теперь как юзать searcher
+searcher = kahoot.KahootSmartSearch()
+kahoot.kahoot_backdoor_logger
+result = searcher.get(questions[0]) # используем первый вопрос из того кахута в начале
+result = searcher.get(questions[1]) # и грузим второй что бы он имел больше данных для анализа
+
+print(searcher.finaled) # finaled означает закончили мы поиск полностью и имеем один стойкий результат или нет
+print(searcher.finish) # finish - финальный точный кахут, он есть только если finaled == True
+
+"""
+вывод:
+True
+Kahoot(uuid='b07c73af-4bdd-40d5-a9ab-e8f2aa9ac18f', title='Штребунал', author='ZmeiOdnoglazi', usage='unknown')
+
+это означает что наш поисковик смог найтии этот кахут по 2 первым вопросам,
+это особенно подходит если мы делаем сервер поисковик, хотя он уже есть: 
+kahoot.kahoot_backdoor_logger - он уже имеет встроенный логгер и поисковик,
+а так же подсвечивает верные ответы если нашел кахут
+"""
