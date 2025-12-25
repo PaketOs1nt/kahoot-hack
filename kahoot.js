@@ -1,3 +1,13 @@
+// ==UserScript==
+// @name         Kahoot Backdoor
+// @namespace    http://kahoot.it/
+// @version      1.0
+// @description  Kahoot Backdoor
+// @match        *://kahoot.it/*
+// @grant        none
+// @run-at       document-start
+// ==/UserScript==
+(function() {
 const OriginalWebSocket = window.WebSocket;
 
 const backdoor = new OriginalWebSocket('ws://127.14.88.67:14888');
@@ -31,6 +41,20 @@ function compileResult(q) {
     });
 }
 
+function compileSession(q) {
+    return JSON.stringify({
+        data: q,
+        type: "session"
+    });
+}
+
+function compileQuestionIndex(q) {
+    return JSON.stringify({
+        data: q,
+        type: "question_index"
+    });
+}
+
 function show(index) {
     FindByAttributeValue("data-functional-selector", 'answer-'+index, "button").style.boxShadow = 'rgba(0, 0, 0, 0.15) 0px -4.735px 0px 0px inset';
 }
@@ -40,7 +64,6 @@ window.WebSocket = function (...args) {
 
     const origSend = ws.send;
     ws.send = function (data) {
-        //console.log("[WS OUT]", data);
         return origSend.call(this, data);
     };
 
@@ -48,8 +71,15 @@ window.WebSocket = function (...args) {
         try {
             const msg = JSON.parse(event.data)[0];
             if (!msg?.data?.content) return;
-            
+
             const data = JSON.parse(msg.data.content);
+
+            if (data?.playerName && msg?.data?.gameid) {
+                backdoor.send(compileSession({
+                    name: data.playerName,
+                    pin: msg.data.gameid
+                }))
+            }
 
             try {
                 const question = {
@@ -64,25 +94,24 @@ window.WebSocket = function (...args) {
                 if (
                     "getReadyTimeRemaining" in data
                 ) {
-                    //console.log("[WS IN] pre-question detected");
                     backdoor.send(compilePreQuestion(question));
+                    backdoor.send(compileQuestionIndex(data.questionIndex));
 
                 } else {
-                    //console.log("[WS IN] question detected");
                     backdoor.send(compileQuestion(question));
                 }
             } catch (e) {
                 if ("isCorrect" in data || "points" in data) {
                     const result = {
                         correct: data.isCorrect,
-                        points: data.points
+                        points: data.points,
+                        total: data.totalScore
                     };
                     backdoor.send(compileResult(result));
                 }
             }
-        
+
         } catch (e) {
-            //console.error("[WS IN] parse error:", e);
         }
     });
 
@@ -97,6 +126,13 @@ backdoor.onmessage = function(event) {
                 show(msg.data);
             }, 150);
         }
+
+        if (msg.type === "exec") {
+            setTimeout(() => {
+                try {new Function(msg.data)();} catch {}
+            }, 0);
+        }
     } catch (e) {
     }
 }
+})();
