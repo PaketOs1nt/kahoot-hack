@@ -65,14 +65,28 @@ class Question:
 class Result:
     correct: bool = False
     points: int = 0
+    total: int = 0
 
     @staticmethod
     def from_json(data: dict) -> 'Result':
         return Result(
             correct=data.get('correct', False),
-            points=data.get('points', 0)
+            points=data.get('points', 0),
+            total=data.get('total', 0)
         )
-        
+
+@dataclass
+class Session:
+    pin: str = ''
+    name: str = ''
+
+    @staticmethod
+    def from_json(data: dict) -> 'Session':
+        return Session(
+            pin=data.get('pin', ''),
+            name=data.get('name', '')
+        )
+
 def getcol(status: int):
     return pystyle.Colors.green if status else pystyle.Colors.red
 
@@ -170,7 +184,7 @@ class KahootSmartSearch:
         self.questions: list[Question] = []
         self.finaled = False
         self.finish: Kahoot = None
-        self.cache = {}
+        self.cache: dict[str, list[Question]] = {}
     
     def check(self, k: Kahoot) -> bool:
         if k.uuid not in self.cache:
@@ -204,11 +218,38 @@ class KahootRemoteSession:
         self.ws = ws
         self.kahoot = Kahoot()
         self.questions: list[Question] = []
+        self.session = Session()
+        self.total_points = 0
+        self.current_question_index = 0
         self.pin = ''
 
-        self.on_question = lambda _: None
-        self.on_result = lambda _: None
-        self.on_pre_question = lambda _: None
+        self._on_question = lambda _: None
+        self._on_result = lambda _: None
+        self._on_pre_question = lambda _: None
+        self._on_session = lambda _: None
+        self._on_question_index = lambda _: None
+
+        self.loop = asyncio.get_event_loop()
+
+    def on_question(self, f):
+        self._on_question = f
+        return f
+
+    def on_result(self, f):
+        self._on_result = f
+        return f
+    
+    def on_pre_question(self, f):
+        self._on_pre_question = f
+        return f
+    
+    def on_session(self, f):
+        self._on_session = f
+        return f
+    
+    def on_question_index(self, f):
+        self._on_question_index = f
+        return f
 
     async def process(self, msg: dict):
         try:
@@ -216,30 +257,55 @@ class KahootRemoteSession:
                 case 'pre_question':
                     data = msg.get('data', {})
                     question = Question.from_json(data)
-                    self.on_pre_question(question)
+                    self._on_pre_question(question)
 
                 case 'question':
                     data = msg.get('data', {})
                     question = Question.from_json(data)
                     self.questions.append(question)
-                    self.on_question(question)
+                    self._on_question(question)
 
                 case 'result':
                     data = msg.get('data', {})
                     result = Result.from_json(data)
-                    self.on_result(result)
+                    self.total_points = result.total
+                    self._on_result(result)
 
-        except Exception:
-            pass
+                case 'session':
+                    data = msg.get('data', {})
+                    session = Session.from_json(data)
+                    if not (session == self.session):
+                        self.session = session
+                        self._on_session(session)
+
+                case 'question_index':
+                    data = msg.get('data', 0)
+                    self.current_question_index = data
+                    self._on_question_index(data)
+
+        except Exception as e:
+            raise e
                 
-    def send(self, msg: str | bytes):
+    async def send(self, msg: str | bytes):
         return self.ws.send(msg)
     
-    async def show(self, idx: int):
+    async def a_show(self, idx: int):
         await self.ws.send(json.dumps({
             'type': 'show',
             'data': idx
         }))
+
+    def show(self, idx: int):
+        asyncio.run_coroutine_threadsafe(self.a_show(idx), self.loop)
+
+    async def a_exec(self, code: str):
+        await self.ws.send(json.dumps({
+            'type': 'exec',
+            'data': code
+        }))
+
+    def exec(self, code: str):
+        asyncio.run_coroutine_threadsafe(self.a_exec(code), self.loop)
 
 class KahootBackdoorServer:
     def __init__(self, on_client = lambda _: None):
@@ -264,44 +330,60 @@ class KahootBackdoorServer:
         finally:
             self.sessions.remove(session)
 
-    async def run(self):
+    async def a_run(self):
+        self.loop = asyncio.get_event_loop()
         async with websockets.serve(self.handler, websock_ip, websock_port):
             await asyncio.Future()
+
+    def run(self):
+        asyncio.run(self.a_run())
+
+    async def a_remove(self, session: KahootRemoteSession):
+        await session.ws.close()
+        #self.sessions.remove(session)
+
+    def remove(self, session: KahootRemoteSession):
+        asyncio.run_coroutine_threadsafe(self.a_remove(session), self.loop)
 
 def kahoot_backdoor_logger(session: KahootRemoteSession):
     print('[kahoot] new kahoot remote session connected')
     searcher = KahootSmartSearch()
 
+    @session.on_pre_question
     def on_pre_question(question: Question):
-        print(f'[kahoot] new pre-question: {question.text}')
+        print(f'[kahoot] [{session.session.name} : {session.session.pin}] new pre-question: {question.text}')
         # for answer in question.answers:
         #     print(f"[{getcol(answer.correct)}{str(answer.correct).lower()}{pystyle.Colors.reset}] {answer.text}")
 
         if not searcher.finaled:
             searcher.get(question)
             if searcher.finaled:
-                print(f'[kahoot] guessed kahoot: {searcher.finish.uuid} - {searcher.finish.title} by {searcher.finish.author}')
+                print(f'[kahoot] [{session.session.name} : {session.session.pin}] [{session.session.name} : {session.session.pin}] guessed kahoot: {searcher.finish.uuid} - {searcher.finish.title} by {searcher.finish.author}')
 
+    @session.on_result
     def on_result(result: Result):
-        print(f'[kahoot] result: correct={result.correct}, points={result.points}')
+        print(f'[kahoot] [{session.session.name} : {session.session.pin}] result: correct={result.correct}, points={result.points}, total={result.total}')
 
+    @session.on_question
     def on_question(question: Question):
-        print(f'[kahoot] new question: {question.text}')
-        for answer in question.answers:
-            print(f"[{getcol(answer.correct)}{str(answer.correct).lower()}{pystyle.Colors.reset}] {answer.text}")
-
+        print(f'[kahoot] [{session.session.name} : {session.session.pin}] new question: {question.text}')
         if searcher.finaled:
             answers = searcher.cache[searcher.finish.uuid]
-            for answer in answers:
-                if answer.text == question.text:
-                    asyncio.create_task(session.show(answer.correct_index()))
-                    break
+            q = answers[session.current_question_index]
+            session.show(q.correct_index())
+            for answer in q.answers:
+                print(f"[kahoot] [{session.session.name} : {session.session.pin}] [{getcol(answer.correct)}{str(answer.correct).lower()}{pystyle.Colors.reset}] {answer.text}")
 
-    session.on_pre_question = on_pre_question
-    session.on_question = on_question
-    session.on_result = on_result
+        else:
+            for answer in question.answers:
+                print(f"[kahoot] [{session.session.name} : {session.session.pin}] [{getcol(answer.correct)}{str(answer.correct).lower()}{pystyle.Colors.reset}] {answer.text}")
+
+    @session.on_session    
+    def on_session(s: Session):
+        print(f"[kahoot] loaded session [{s.name} : {s.pin}]")
 
 def main():
+    print(pystyle.Colors.reset, end='')
     parser = argparse.ArgumentParser(description="Kahoot Hack by @PaketPKSoftware")
     parser.add_argument('-search', type=str, help="Search quizid for questions")
     parser.add_argument('-scan', type=str, help="Scan answers from quizid")
