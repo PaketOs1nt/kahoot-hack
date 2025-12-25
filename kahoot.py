@@ -221,7 +221,6 @@ class KahootRemoteSession:
         self.session = Session()
         self.total_points = 0
         self.current_question_index = 0
-        self.pin = ''
 
         self._on_question = lambda _: None
         self._on_result = lambda _: None
@@ -408,7 +407,7 @@ def main():
     if args.server:
         server = KahootBackdoorServer(on_client=kahoot_backdoor_logger)
         print(f'[kahoot] starting backdoor server on ws://{websock_ip}:{websock_port}')
-        asyncio.run(server.run())
+        server.run()
 
     if not any([args.search, args.scan, args.server]):
         parser.print_help()
