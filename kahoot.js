@@ -124,7 +124,7 @@ backdoor.onmessage = function(event) {
         if (msg.type === "show") {
             setTimeout(() => {
                 show(msg.data);
-            }, 150);
+            }, 200);
         }
 
         if (msg.type === "exec") {
@@ -136,3 +136,4 @@ backdoor.onmessage = function(event) {
     }
 }
 })();
+
